@@ -39,7 +39,10 @@ LOCAL_SHARED_LIBRARIES        := libsdmcore libqservice libbinder libhardware li
                                  vendor.display.config@1.8 \
                                  vendor.display.config@1.9 \
                                  vendor.display.config@1.10 \
-                                 vendor.display.config@1.11
+                                 vendor.display.config@1.11 \
+                                 libdrm.vendor
+
+LOCAL_STATIC_LIBRARIES        := libhistogram
 
 ifeq ($(TARGET_BOARD_AUTO), true)
 LOCAL_CFLAGS                  += -DCONFIG_BASEID_FROM_PROP
