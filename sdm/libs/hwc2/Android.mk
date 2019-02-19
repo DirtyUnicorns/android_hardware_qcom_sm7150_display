@@ -40,6 +40,7 @@ LOCAL_SHARED_LIBRARIES        := libsdmcore libqservice libbinder libhardware li
                                  vendor.display.config@1.9 \
                                  vendor.display.config@1.10 \
                                  vendor.display.config@1.11 \
+                                 hardware.google.light@1.0 \
                                  libdrm.vendor
 
 LOCAL_STATIC_LIBRARIES        := libhistogram

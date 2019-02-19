@@ -445,6 +445,7 @@ class HWCDisplay : public DisplayEventHandler {
   bool fast_path_composition_ = false;
   bool client_connected_ = true;
   bool pending_config_ = false;
+  float hdr_largest_layer_px_ = 0.0f;
 
  private:
   void DumpInputBuffers(void);
