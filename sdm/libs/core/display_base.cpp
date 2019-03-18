@@ -1950,4 +1950,12 @@ void DisplayBase::SetLutSwapFlag() {
   return;
 }
 
+DisplayError DisplayBase::colorSamplingOn() {
+  return kErrorNone;
+}
+
+DisplayError DisplayBase::colorSamplingOff() {
+  return kErrorNone;
+}
+
 }  // namespace sdm

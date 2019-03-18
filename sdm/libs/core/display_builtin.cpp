@@ -36,6 +36,8 @@
 #include "display_builtin.h"
 #include "hw_info_interface.h"
 #include "hw_interface.h"
+#include "drm_interface.h"
+#include "drm_master.h"
 
 #define __CLASS__ "DisplayBuiltIn"
 
@@ -123,6 +125,8 @@ DisplayError DisplayBuiltIn::Init() {
   Debug::GetProperty(DISABLE_DEFER_POWER_STATE, &disable_defer_power_state);
   defer_power_state_ = !disable_defer_power_state;
 
+  setupColorSamplingState();
+
   DLOGI("defer_power_state %d", defer_power_state_);
 
   return error;
@@ -195,6 +199,44 @@ HWAVRModes DisplayBuiltIn::GetAvrMode(QSyncMode mode) {
   }
 }
 
+void DisplayBuiltIn::setupColorSamplingState() {
+  samplingState = SamplingState::Off;
+  histogramCtrl.object_type = DRM_MODE_OBJECT_CRTC;
+  histogramCtrl.feature_id = sde_drm::DRMDPPSFeatureID::kFeatureAbaHistCtrl;
+  histogramCtrl.value = sde_drm::HistModes::kHistDisabled;
+
+  histogramIRQ.object_type = DRM_MODE_OBJECT_CRTC;
+  histogramIRQ.feature_id = sde_drm::DRMDPPSFeatureID::kFeatureAbaHistIRQ;
+  histogramIRQ.value = sde_drm::HistModes::kHistDisabled;
+  histogramSetup = true;
+}
+
+DisplayError DisplayBuiltIn::setColorSamplingState(SamplingState state) {
+  samplingState = state;
+  if (samplingState == SamplingState::On) {
+    histogramCtrl.value = sde_drm::HistModes::kHistEnabled;
+    histogramIRQ.value = sde_drm::HistModes::kHistEnabled;
+  } else {
+    histogramCtrl.value = sde_drm::HistModes::kHistDisabled;
+    histogramIRQ.value = sde_drm::HistModes::kHistDisabled;
+  }
+
+  //effectively drmModeAtomicAddProperty for the SDE_DSPP_HIST_CTRL_V1
+  return DppsProcessOps(kDppsSetFeature, &histogramCtrl, sizeof(histogramCtrl));
+}
+
+DisplayError DisplayBuiltIn::colorSamplingOn() {
+  if (!histogramSetup)
+    return kErrorParameters;
+  return setColorSamplingState(SamplingState::On);
+}
+
+DisplayError DisplayBuiltIn::colorSamplingOff() {
+  if (!histogramSetup)
+    return kErrorParameters;
+  return setColorSamplingState(SamplingState::Off);
+}
+
 DisplayError DisplayBuiltIn::Commit(LayerStack *layer_stack) {
   lock_guard<recursive_mutex> obj(recursive_mutex_);
   DisplayError error = kErrorNone;
@@ -212,6 +254,10 @@ DisplayError DisplayBuiltIn::Commit(LayerStack *layer_stack) {
       event_handler_->Refresh();
     }
   }
+
+  //effectively drmModeAtomicAddProperty for SDE_DSPP_HIST_IRQ_V1
+  if (histogramSetup)
+      DppsProcessOps(kDppsSetFeature, &histogramIRQ, sizeof(histogramIRQ));
 
   error = DisplayBase::Commit(layer_stack);
   if (error != kErrorNone) {

@@ -863,6 +863,11 @@ class DisplayInterface {
       @return \link boolean \endlink
   */
   virtual bool CanSkipValidate() = 0;
+  /*! @brief Method to turn on histogram events. */
+  virtual DisplayError colorSamplingOn() = 0;
+
+  /*! @brief Method to turn off histogram events. */
+  virtual DisplayError colorSamplingOff() = 0;
 
  protected:
   virtual ~DisplayInterface() { }
