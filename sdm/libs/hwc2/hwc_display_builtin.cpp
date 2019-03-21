@@ -1029,4 +1029,8 @@ HWC2::Error HWCDisplayBuiltIn::PostCommitLayerStack(int32_t *out_retire_fence) {
   return HWCDisplay::PostCommitLayerStack(out_retire_fence);
 }
 
+DisplayError HWCDisplayBuiltIn::HistogramEvent(int fd, uint32_t blob_id) {
+  histogram.notify_histogram_event(fd, blob_id);
+  return kErrorNone;
+}
 }  // namespace sdm
