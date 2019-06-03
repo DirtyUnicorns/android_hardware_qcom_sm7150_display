@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -143,6 +143,7 @@ class HWCDisplayBuiltIn : public HWCDisplay {
   int default_mode_status_ = 0;
   bool pending_refresh_ = true;
   bool enable_drop_refresh_ = false;
+  bool hdr_present_ = false;
 
   // Members for 1 frame capture in a client provided buffer
   bool frame_capture_buffer_queued_ = false;
