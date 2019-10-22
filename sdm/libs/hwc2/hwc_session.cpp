@@ -205,7 +205,6 @@ int HWCSession::Init() {
     return -EINVAL;
   }
 
-  StartServices();
   HWCDebugHandler::Get()->GetProperty(ENABLE_NULL_DISPLAY_PROP, &null_display_mode_);
   HWCDebugHandler::Get()->GetProperty(DISABLE_HOTPLUG_BWCHECK, &disable_hotplug_bwcheck_);
   HWCDebugHandler::Get()->GetProperty(DISABLE_MASK_LAYER_HINT, &disable_mask_layer_hint_);
@@ -229,6 +228,7 @@ int HWCSession::Init() {
   }
 
   is_composer_up_ = true;
+  StartServices();
 
   return 0;
 }
@@ -837,7 +837,9 @@ int32_t HWCSession::RegisterCallback(hwc2_device_t *device, int32_t descriptor,
             strerror(abs(err)), hwc_session->hotplug_pending_event_ == kHotPlugEvent ? "deferred" :
             "dropped");
     }
-    hwc_session->client_connected_ = true;
+    hwc_session->client_connected_ = !!pointer;
+    // Notfify all displays.
+    hwc_session->NotifyClientStatus(hwc_session->client_connected_);
   }
   hwc_session->need_invalidate_ = false;
   hwc_session->callbacks_lock_.Broadcast();
@@ -1056,6 +1058,9 @@ int32_t HWCSession::SetPowerMode(hwc2_device_t *device, hwc2_display_t display, 
     hwc_session->Refresh(display);
     // Trigger one more refresh for PP features to take effect.
     hwc_session->pending_refresh_.set(UINT32(display));
+  } else {
+    // Reset the pending refresh bit
+    hwc_session->pending_refresh_.reset(UINT32(display));
   }
 
   return HWC2_ERROR_NONE;
@@ -1893,18 +1898,8 @@ android::status_t HWCSession::SetAd4RoiConfig(const android::Parcel *input_parce
   auto f_in = static_cast<uint32_t>(input_parcel->readInt32());
   auto f_out = static_cast<uint32_t>(input_parcel->readInt32());
 
-#ifdef DISPLAY_CONFIG_1_5
   return static_cast<android::status_t>(SetDisplayDppsAdROI(display_id, h_s, h_e, v_s,
                                                             v_e, f_in, f_out));
-#else
-  auto err = CallDisplayFunction(static_cast<hwc2_device_t *>(this), display_id,
-                                 &HWCDisplay::SetDisplayDppsAdROI, h_s, h_e, v_s, v_e,
-                                 f_in, f_out);
-  if (err != HWC2_ERROR_NONE)
-    return -EINVAL;
-
-  return 0;
-#endif
 }
 
 android::status_t HWCSession::SetColorModeWithRenderIntentOverride(
@@ -2990,7 +2985,8 @@ void HWCSession::DisplayPowerReset() {
         DLOGE("%d mode for display = %d failed with error = %d", mode, display, status);
       }
       ColorMode color_mode = hwc_display_[display]->GetCurrentColorMode();
-      status = hwc_display_[display]->SetColorMode(color_mode);
+      RenderIntent intent = hwc_display_[display]->GetCurrentRenderIntent();
+      status = hwc_display_[display]->SetColorModeWithRenderIntent(color_mode, intent);
       if (status != HWC2::Error::None) {
         DLOGE("SetColorMode failed for display = %d error = %d", display, status);
       }
@@ -3147,6 +3143,9 @@ int32_t HWCSession::GetReadbackBufferAttributes(hwc2_device_t *device, hwc2_disp
   HWCDisplay *hwc_display = hwc_session->hwc_display_[display];
 
   if (hwc_display) {
+    if (!hwc_display->IsDisplayCommandMode()) {
+      return HWC2_ERROR_UNSUPPORTED;
+    }
     *format = HAL_PIXEL_FORMAT_RGB_888;
     *dataspace = GetDataspaceFromColorMode(hwc_display->GetCurrentColorMode());
     return HWC2_ERROR_NONE;
@@ -3166,17 +3165,14 @@ int32_t HWCSession::SetReadbackBuffer(hwc2_device_t *device, hwc2_display_t disp
   }
 
   HWCSession *hwc_session = static_cast<HWCSession *>(device);
-  hwc2_display_t external_display_index =
-        (hwc2_display_t)hwc_session->GetDisplayIndex(qdutils::DISPLAY_EXTERNAL);
-  hwc2_display_t virtual_display_index =
-        (hwc2_display_t)hwc_session->GetDisplayIndex(qdutils::DISPLAY_VIRTUAL);
 
-  if ((external_display_index == -1) || (virtual_display_index == -1)) {
+  int external_display_index = hwc_session->GetDisplayIndex(qdutils::DISPLAY_EXTERNAL);
+  if ((external_display_index >=0) && (hwc_session->hwc_display_[external_display_index])) {
     return HWC2_ERROR_UNSUPPORTED;
   }
 
-  if (hwc_session->hwc_display_[external_display_index] ||
-      hwc_session->hwc_display_[virtual_display_index]) {
+  int virtual_display_index = hwc_session->GetDisplayIndex(qdutils::DISPLAY_VIRTUAL);
+  if ((virtual_display_index >=0) && (hwc_session->hwc_display_[virtual_display_index])) {
     return HWC2_ERROR_UNSUPPORTED;
   }
 
@@ -3317,36 +3313,7 @@ android::status_t HWCSession::SetIdlePC(const android::Parcel *input_parcel) {
   auto enable = input_parcel->readInt32();
   auto synchronous = input_parcel->readInt32();
 
-#ifdef DISPLAY_CONFIG_1_3
   return static_cast<android::status_t>(controlIdlePowerCollapse(enable, synchronous));
-#else
-  {
-    hwc2_display_t active_builtin_disp_id = GetActiveBuiltinDisplay();
-    if (active_builtin_disp_id >= HWCCallbacks::kNumDisplays) {
-      DLOGE("No active displays");
-      return -EINVAL;
-    }
-    SEQUENCE_WAIT_SCOPE_LOCK(locker_[active_builtin_disp_id]);
-    if (hwc_display_[active_builtin_disp_id]) {
-      DLOGE("Primary display is not ready");
-      return -EINVAL;
-    }
-    auto err = hwc_display_[active_builtin_disp_id]->ControlIdlePowerCollapse(enable, synchronous);
-    if (err != kErrorNone) {
-      return (err == kErrorNotSupported) ? 0 : -EINVAL;
-    }
-    if (!enable) {
-      Refresh(active_builtin_disp_id);
-      int32_t error = locker_[active_builtin_disp_id].WaitFinite(kCommitDoneTimeoutMs);
-      if (error == ETIMEDOUT) {
-        DLOGE("Timed out!! Next frame commit done event not received!!");
-        return error;
-      }
-    }
-    DLOGI("Idle PC %s!!", enable ? "enabled" : "disabled");
-  }
-  return 0;
-#endif
 }
 
 hwc2_display_t HWCSession::GetActiveBuiltinDisplay() {
@@ -3365,6 +3332,16 @@ hwc2_display_t HWCSession::GetActiveBuiltinDisplay() {
   }
 
   return disp_id;
+}
+
+void HWCSession::NotifyClientStatus(bool connected) {
+  for (uint32_t i = 0; i < HWCCallbacks::kNumDisplays; i++) {
+    if (!hwc_display_[i]) {
+      continue;
+    }
+    SCOPE_LOCK(locker_[i]);
+    hwc_display_[i]->NotifyClientStatus(connected);
+  }
 }
 
 }  // namespace sdm

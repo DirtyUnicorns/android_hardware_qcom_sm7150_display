@@ -56,6 +56,7 @@ DisplayBuiltIn::DisplayBuiltIn(int32_t display_id, DisplayEventHandler *event_ha
 
 DisplayError DisplayBuiltIn::Init() {
   lock_guard<recursive_mutex> obj(recursive_mutex_);
+  int32_t disable_defer_power_state = 0;
 
   DisplayError error = HWInterface::Create(display_id_, kBuiltIn, hw_info_intf_,
                                            buffer_sync_handler_, buffer_allocator_, &hw_intf_);
@@ -109,6 +110,11 @@ DisplayError DisplayBuiltIn::Init() {
   }
 
   current_refresh_rate_ = hw_panel_info_.max_fps;
+
+  Debug::GetProperty(DISABLE_DEFER_POWER_STATE, &disable_defer_power_state);
+  defer_power_state_ = !disable_defer_power_state;
+
+  DLOGI("defer_power_state %d", defer_power_state_);
 
   return error;
 }
@@ -327,6 +333,11 @@ DisplayError DisplayBuiltIn::SetRefreshRate(uint32_t refresh_rate, bool final_ra
       // Attempt to update refresh rate can fail if rf interfenence is detected.
       // Just drop min fps settting for now.
       handle_idle_timeout_ = false;
+      return error;
+    }
+
+    error = comp_manager_->CheckEnforceSplit(display_comp_ctx_, refresh_rate);
+    if (error != kErrorNone) {
       return error;
     }
   }
