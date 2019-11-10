@@ -283,6 +283,14 @@ DisplayError DisplayBase::Prepare(LayerStack *layer_stack) {
   lock_guard<recursive_mutex> obj(recursive_mutex_);
   DisplayError error = kErrorNone;
   needs_validate_ = true;
+  if (defer_power_state_ && power_state_pending_ != kStateOff) {
+    defer_power_state_ = false;
+    error = SetDisplayState(power_state_pending_, false, NULL);
+    if (error != kErrorNone) {
+      return error;
+    }
+    power_state_pending_ = kStateOff;
+  }
 
   DTRACE_SCOPED();
   if (!active_) {
@@ -405,6 +413,7 @@ DisplayError DisplayBase::Commit(LayerStack *layer_stack) {
   }
 
   PostCommitLayerParams(layer_stack);
+  SetLutSwapFlag();
 
   if (partial_update_control_) {
     comp_manager_->ControlPartialUpdate(display_comp_ctx_, true /* enable */);
@@ -516,6 +525,14 @@ DisplayError DisplayBase::GetVSyncState(bool *enabled) {
 DisplayError DisplayBase::SetDisplayState(DisplayState state, bool teardown,
                                           int *release_fence) {
   lock_guard<recursive_mutex> obj(recursive_mutex_);
+  if (defer_power_state_) {
+    if (state == kStateOff) {
+      DLOGE("State cannot be PowerOff on first cycle");
+      return kErrorParameters;
+    }
+    power_state_pending_ = state;
+    return kErrorNone;
+  }
   DisplayError error = kErrorNone;
   bool active = false;
 
@@ -578,7 +595,15 @@ DisplayError DisplayBase::SetDisplayState(DisplayState state, bool teardown,
   if (error == kErrorNone) {
     active_ = active;
     state_ = state;
-    comp_manager_->SetDisplayState(display_comp_ctx_, state);
+    comp_manager_->SetDisplayState(display_comp_ctx_, state, release_fence ? *release_fence : -1);
+  }
+
+  if (vsync_state_change_pending_ && (state_ != kStateOff || state_ != kStateStandby)) {
+    error = SetVSyncState(requested_vsync_state_);
+    if (error != kErrorNone) {
+      return error;
+    }
+    vsync_state_change_pending_ = false;
   }
 
   return error;
@@ -1095,6 +1120,14 @@ DisplayError DisplayBase::GetRefreshRateRange(uint32_t *min_refresh_rate,
 
 DisplayError DisplayBase::SetVSyncState(bool enable) {
   lock_guard<recursive_mutex> obj(recursive_mutex_);
+  if (state_ == kStateOff) {
+    DLOGW("Can't %s vsync when power state is off for display %d-%d," \
+          "Defer it when display is active", enable ? "enable":"disable",
+          display_id_, display_type_);
+    vsync_state_change_pending_ = true;
+    requested_vsync_state_ = enable;
+    return kErrorNone;
+  }
   DisplayError error = kErrorNone;
   if (vsync_enable_ != enable) {
     error = hw_intf_->SetVSyncState(enable);
@@ -1888,7 +1921,27 @@ bool DisplayBase::IsHdrMode(const AttrVal &attr) {
 }
 
 bool DisplayBase::CanSkipValidate() {
-  return comp_manager_->CanSkipValidate(display_comp_ctx_);
+  return comp_manager_->CanSkipValidate(display_comp_ctx_) && !lut_swap_;
+}
+
+void DisplayBase::SetLutSwapFlag() {
+  uint32_t hw_layer_count = UINT32(hw_layers_.info.hw_layers.size());
+  for (uint32_t i = 0; i < hw_layer_count; i++) {
+    HWPipeInfo *left_pipe = &hw_layers_.config[i].left_pipe;
+    HWPipeInfo *right_pipe = &hw_layers_.config[i].right_pipe;
+    for (uint32_t count = 0; count < 2; count++) {
+      HWPipeInfo *pipe_info = (count == 0) ? left_pipe : right_pipe;
+      if (!pipe_info->valid || !pipe_info->scale_data.lut_flag.lut_swap) {
+        continue;
+      }
+      lut_swap_ = true;
+      return;
+    }
+  }
+
+  // No pipe needs lut swap.
+  lut_swap_ = false;
+  return;
 }
 
 }  // namespace sdm
