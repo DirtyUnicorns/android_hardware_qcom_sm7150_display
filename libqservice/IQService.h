@@ -86,6 +86,8 @@ public:
         GET_SUPPORTED_DSI_CLK = 44, // Get supported DSI Clk.
         SET_COLOR_MODE_FROM_CLIENT = 45, // Overrides the QDCM mode using the given mode ID
         SET_PANEL_LUMINANCE = 46, // Set Panel Luminance attributes.
+
+        SET_COLOR_SAMPLING_ENABLED = 101, // Toggle the collection of display color stats
         COMMAND_LIST_END = 400,
     };
 
