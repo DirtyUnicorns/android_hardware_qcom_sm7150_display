@@ -1794,7 +1794,7 @@ void DisplayBase::GetColorPrimaryTransferFromAttributes(const AttrVal &attr,
         pt.transfer = Transfer_sRGB;
         supported_pt->push_back(pt);
       } else if (pt.primaries == ColorPrimaries_DCIP3) {
-        pt.transfer = Transfer_Gamma2_2;
+        pt.transfer = Transfer_sRGB;
         supported_pt->push_back(pt);
       } else if (pt.primaries == ColorPrimaries_BT2020) {
         pt.transfer = Transfer_SMPTE_ST2084;
@@ -1896,7 +1896,7 @@ PrimariesTransfer DisplayBase::GetBlendSpaceFromColorMode() {
     }
   } else if (color_gamut == kDcip3) {
     pt.primaries = GetColorPrimariesFromAttribute(color_gamut);
-    pt.transfer = Transfer_Gamma2_2;
+    pt.transfer = Transfer_sRGB;
   }
 
   return pt;
@@ -1948,6 +1948,14 @@ void DisplayBase::SetLutSwapFlag() {
   // No pipe needs lut swap.
   lut_swap_ = false;
   return;
+}
+
+DisplayError DisplayBase::colorSamplingOn() {
+  return kErrorNone;
+}
+
+DisplayError DisplayBase::colorSamplingOff() {
+  return kErrorNone;
 }
 
 }  // namespace sdm
