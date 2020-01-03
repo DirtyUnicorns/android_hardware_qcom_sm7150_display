@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are
@@ -235,6 +235,8 @@ DisplayError HWEventsDRM::Init(int display_id, DisplayType display_type,
     return kErrorResources;
   }
 
+  RegisterVSync();
+  vsync_registered_ = true;
   RegisterPanelDead(true);
   RegisterIdleNotify(true);
   RegisterIdlePowerCollapse(true);

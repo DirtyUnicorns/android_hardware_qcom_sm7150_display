@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2014 - 2019, The Linux Foundation. All rights reserved.
+* Copyright (c) 2014 - 2018, The Linux Foundation. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without modification, are permitted
 * provided that the following conditions are met:
@@ -58,7 +58,6 @@ DisplayBuiltIn::DisplayBuiltIn(int32_t display_id, DisplayEventHandler *event_ha
 
 DisplayError DisplayBuiltIn::Init() {
   lock_guard<recursive_mutex> obj(recursive_mutex_);
-  int32_t disable_defer_power_state = 0;
 
   DisplayError error = HWInterface::Create(display_id_, kBuiltIn, hw_info_intf_,
                                            buffer_sync_handler_, buffer_allocator_, &hw_intf_);
@@ -122,12 +121,8 @@ DisplayError DisplayBuiltIn::Init() {
 
   current_refresh_rate_ = hw_panel_info_.max_fps;
 
-  Debug::GetProperty(DISABLE_DEFER_POWER_STATE, &disable_defer_power_state);
-  defer_power_state_ = !disable_defer_power_state;
 
   setupColorSamplingState();
-
-  DLOGI("defer_power_state %d", defer_power_state_);
 
   int value = 0;
   Debug::Get()->GetProperty(DEFER_FPS_FRAME_COUNT, &value);
@@ -159,8 +154,7 @@ DisplayError DisplayBuiltIn::Prepare(LayerStack *layer_stack) {
     }
   } else {
     if (CanSkipDisplayPrepare(layer_stack)) {
-      hw_layers_.hw_avr_info.update = needs_avr_update_;
-      hw_layers_.hw_avr_info.mode = GetAvrMode(qsync_mode_);
+      hw_layers_.hw_avr_info.enable = NeedsAVREnable();
       return kErrorNone;
     }
   }
@@ -170,8 +164,7 @@ DisplayError DisplayBuiltIn::Prepare(LayerStack *layer_stack) {
   hw_layers_ = HWLayers();
   DTRACE_END();
 
-  hw_layers_.hw_avr_info.update = needs_avr_update_;
-  hw_layers_.hw_avr_info.mode = GetAvrMode(qsync_mode_);
+  hw_layers_.hw_avr_info.enable = NeedsAVREnable();
 
   left_frame_roi_ = {};
   right_frame_roi_ = {};
@@ -187,20 +180,6 @@ DisplayError DisplayBuiltIn::Prepare(LayerStack *layer_stack) {
   }
 
   return error;
-}
-
-HWAVRModes DisplayBuiltIn::GetAvrMode(QSyncMode mode) {
-  switch (mode) {
-     case kQSyncModeNone:
-       return kQsyncNone;
-     case kQSyncModeContinuous:
-       return kContinuousMode;
-     case kQsyncModeOneShot:
-     case kQsyncModeOneShotContinuous:
-       return kOneShotMode;
-     default:
-       return kQsyncNone;
-  }
 }
 
 void DisplayBuiltIn::setupColorSamplingState() {
@@ -293,19 +272,6 @@ DisplayError DisplayBuiltIn::Commit(LayerStack *layer_stack) {
   }
 
   dpps_info_.Init(this, hw_panel_info_.panel_name);
-
-  if (qsync_mode_ == kQsyncModeOneShot) {
-    // Reset qsync mode.
-    SetQSyncMode(kQSyncModeNone);
-  } else if (qsync_mode_ == kQsyncModeOneShotContinuous) {
-    // No action needed.
-  } else if (qsync_mode_ == kQSyncModeContinuous) {
-    needs_avr_update_ = false;
-  } else if (qsync_mode_ == kQSyncModeNone) {
-    needs_avr_update_ = false;
-  }
-
-  first_cycle_ = false;
 
   return error;
 }
@@ -414,7 +380,7 @@ DisplayError DisplayBuiltIn::TeardownConcurrentWriteback(void) {
 DisplayError DisplayBuiltIn::SetRefreshRate(uint32_t refresh_rate, bool final_rate) {
   lock_guard<recursive_mutex> obj(recursive_mutex_);
 
-  if (!active_ || !hw_panel_info_.dynamic_fps || qsync_mode_ != kQSyncModeNone) {
+  if (!active_ || !hw_panel_info_.dynamic_fps) {
     return kErrorNotSupported;
   }
 
@@ -433,11 +399,6 @@ DisplayError DisplayBuiltIn::SetRefreshRate(uint32_t refresh_rate, bool final_ra
       // Attempt to update refresh rate can fail if rf interfenence is detected.
       // Just drop min fps settting for now.
       handle_idle_timeout_ = false;
-      return error;
-    }
-
-    error = comp_manager_->CheckEnforceSplit(display_comp_ctx_, refresh_rate);
-    if (error != kErrorNone) {
       return error;
     }
   }
@@ -543,6 +504,20 @@ DisplayError DisplayBuiltIn::DisablePartialUpdateOneFrame() {
   disable_pu_one_frame_ = true;
 
   return kErrorNone;
+}
+
+bool DisplayBuiltIn::NeedsAVREnable() {
+  if (avr_prop_disabled_ || qsync_mode_ == kQSyncModeNone) {
+    return false;
+  }
+
+  if (GetDriverType() == DriverType::DRM) {
+    return hw_panel_info_.qsync_support;
+  }
+
+  return (hw_panel_info_.mode == kModeVideo &&
+          ((hw_panel_info_.dynamic_fps && hw_panel_info_.dfps_porch_mode) ||
+           (!hw_panel_info_.dynamic_fps && hw_panel_info_.min_fps != hw_panel_info_.max_fps)));
 }
 
 DisplayError DisplayBuiltIn::DppsProcessOps(enum DppsOps op, void *payload, size_t size) {
@@ -678,15 +653,10 @@ DisplayError DisplayBuiltIn::HandleSecureEvent(SecureEvent secure_event, LayerSt
 
 DisplayError DisplayBuiltIn::SetQSyncMode(QSyncMode qsync_mode) {
   lock_guard<recursive_mutex> obj(recursive_mutex_);
-  if (!hw_panel_info_.qsync_support || qsync_mode_ == qsync_mode || first_cycle_) {
-    DLOGE("Failed: qsync_support: %d first_cycle %d mode: %d -> %d", hw_panel_info_.qsync_support,
-          first_cycle_, qsync_mode_, qsync_mode);
+  if (GetDriverType() == DriverType::DRM && qsync_mode == kQsyncModeOneShot) {
     return kErrorNotSupported;
   }
-
   qsync_mode_ = qsync_mode;
-  needs_avr_update_ = true;
-  event_handler_->Refresh();
 
   return kErrorNone;
 }
@@ -825,11 +795,6 @@ bool DisplayBuiltIn::CanSkipDisplayPrepare(LayerStack *layer_stack) {
   }
 
   return same_roi;
-}
-
-DisplayError DisplayBuiltIn::GetRefreshRate(uint32_t *refresh_rate) {
-  *refresh_rate = current_refresh_rate_;
-  return kErrorNone;
 }
 
 DisplayError DisplayBuiltIn::SetActiveConfig(uint32_t index) {

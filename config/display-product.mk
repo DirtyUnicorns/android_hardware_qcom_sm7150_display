@@ -22,7 +22,6 @@ PRODUCT_PACKAGES += \
     vendor.display.config@1.7.vendor \
     vendor.display.config@1.8.vendor \
     vendor.display.config@1.9.vendor \
-    vendor.display.config@1.10.vendor \
     modetest
 
 PRODUCT_PROPERTY_OVERRIDES += \

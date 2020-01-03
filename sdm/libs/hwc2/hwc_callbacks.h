@@ -44,11 +44,7 @@ class HWCCallbacks {
   static const int kNumPluggable = 4;
   static const int kNumVirtual = 4;
   // Add 1 primary display which can be either a builtin or pluggable.
-  // Async powermode update requires dummy hwc displays.
-  // Limit dummy displays to builtin/pluggable type for now.
-  static const int kNumRealDisplays = 1 + kNumBuiltIn + kNumPluggable + kNumVirtual;
-  static const int kNumDisplays = 1 + kNumBuiltIn + kNumPluggable + kNumVirtual +
-                                    1 + kNumBuiltIn + kNumPluggable;
+  static const int kNumDisplays = 1 + kNumBuiltIn + kNumPluggable + kNumVirtual;
 
   HWC2::Error Hotplug(hwc2_display_t display, HWC2::Connection state);
   HWC2::Error Refresh(hwc2_display_t display);
