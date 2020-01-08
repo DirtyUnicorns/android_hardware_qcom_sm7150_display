@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018, 2020 The Linux Foundation. All rights reserved.
  * Not a Contribution
  *
  * Copyright (C) 2010 The Android Open Source Project
@@ -262,7 +262,7 @@ Error BufferManager::UnlockBuffer(const private_handle_t *handle) {
 }
 
 Error BufferManager::AllocateBuffer(const BufferDescriptor &descriptor, buffer_handle_t *handle,
-                                    unsigned int bufferSize) {
+                                    unsigned int bufferSize, bool testAlloc) {
   if (!handle)
     return Error::BAD_BUFFER;
   std::lock_guard<std::mutex> buffer_lock(buffer_lock_);
@@ -284,6 +284,10 @@ Error BufferManager::AllocateBuffer(const BufferDescriptor &descriptor, buffer_h
   err = GetBufferSizeAndDimensions(info, &size, &alignedw, &alignedh, &graphics_metadata);
   if (err < 0) {
     return Error::BAD_DESCRIPTOR;
+  }
+
+  if (testAlloc) {
+    return Error::NONE;
   }
 
   size = (bufferSize >= size) ? bufferSize : size;
