@@ -158,6 +158,10 @@ HWC2::Error HWCColorMode::CacheColorModeWithRenderIntent(ColorMode mode, RenderI
     return error;
   }
 
+  if (current_color_mode_ == mode && current_render_intent_ == intent) {
+    return HWC2::Error::None;
+  }
+
   current_color_mode_ = mode;
   current_render_intent_ = intent;
   apply_mode_ = true;
@@ -462,7 +466,6 @@ int HWCDisplay::Init() {
   DisplayError error = kErrorNone;
 
   HWCDebugHandler::Get()->GetProperty(ENABLE_NULL_DISPLAY_PROP, &null_display_mode_);
-  HWCDebugHandler::Get()->GetProperty(ENABLE_ASYNC_POWERMODE, &async_power_mode_);
 
   if (null_display_mode_) {
     DisplayNull *disp_null = new DisplayNull();
@@ -580,9 +583,6 @@ int HWCDisplay::Deinit() {
   for (auto hwc_layer : layer_set_) {
     delete hwc_layer;
   }
-
-  // Close fbt release fence.
-  close(fbt_release_fence_);
 
   if (color_mode_) {
     color_mode_->DeInit();
@@ -712,6 +712,14 @@ void HWCDisplay::BuildLayerStack() {
       layer_stack_.flags.single_buffered_layer_present = true;
     }
 
+    if (hwc_layer->GetClientRequestedCompositionType() == HWC2::Composition::Cursor) {
+      // Currently we support only one HWCursor & only at top most z-order
+      if ((*layer_set_.rbegin())->GetId() == hwc_layer->GetId()) {
+        layer->flags.cursor = true;
+        layer_stack_.flags.cursor_present = true;
+      }
+    }
+
     bool hdr_layer = layer->input_buffer.color_metadata.colorPrimaries == ColorPrimaries_BT2020 &&
                      (layer->input_buffer.color_metadata.transfer == Transfer_SMPTE_ST2084 ||
                      layer->input_buffer.color_metadata.transfer == Transfer_HLG);
@@ -729,15 +737,6 @@ void HWCDisplay::BuildLayerStack() {
     if (hwc_layer->IsNonIntegralSourceCrop() && !is_secure && !hdr_layer &&
         !layer->flags.single_buffer && !layer->flags.solid_fill && !is_video) {
       layer->flags.skip = true;
-    }
-
-    if (!layer->flags.skip &&
-        (hwc_layer->GetClientRequestedCompositionType() == HWC2::Composition::Cursor)) {
-      // Currently we support only one HWCursor & only at top most z-order
-      if ((*layer_set_.rbegin())->GetId() == hwc_layer->GetId()) {
-        layer->flags.cursor = true;
-        layer_stack_.flags.cursor_present = true;
-      }
     }
 
     if (layer->flags.skip) {
@@ -784,8 +783,6 @@ void HWCDisplay::BuildLayerStack() {
         layer->flags.skip) {
       layer->update_mask.set(kClientCompRequest);
     }
-
-    layer_stack_.flags.mask_present |= layer->input_buffer.flags.mask_layer;
 
     layer_stack_.layers.push_back(layer);
   }
@@ -889,29 +886,6 @@ HWC2::Error HWCDisplay::SetVsyncEnabled(HWC2::Vsync enabled) {
   return HWC2::Error::None;
 }
 
-void HWCDisplay::PostPowerMode() {
-  if (release_fence_ < 0) {
-    return;
-  }
-
-  for (auto hwc_layer : layer_set_) {
-    auto fence = hwc_layer->PopBackReleaseFence();
-    auto merged_fence = -1;
-    if (fence >= 0) {
-      merged_fence = sync_merge("sync_merge", release_fence_, fence);
-      ::close(fence);
-    } else {
-      merged_fence = ::dup(release_fence_);
-    }
-    hwc_layer->PushBackReleaseFence(merged_fence);
-  }
-
-  // Add this release fence onto fbt_release fence.
-  CloseFd(&fbt_release_fence_);
-  fbt_release_fence_ = release_fence_;
-  release_fence_ = -1;
-}
-
 HWC2::Error HWCDisplay::SetPowerMode(HWC2::PowerMode mode, bool teardown) {
   DLOGV("display = %d, mode = %s", id_, to_string(mode).c_str());
   DisplayState state = kStateOff;
@@ -960,14 +934,24 @@ HWC2::Error HWCDisplay::SetPowerMode(HWC2::PowerMode mode, bool teardown) {
     return HWC2::Error::BadParameter;
   }
 
-  // Update release fence.
-  release_fence_ = release_fence;
-  current_power_mode_ = mode;
+  if (release_fence >= 0) {
+    for (auto hwc_layer : layer_set_) {
+      auto fence = hwc_layer->PopBackReleaseFence();
+      auto merged_fence = -1;
+      if (fence >= 0) {
+        merged_fence = sync_merge("sync_merge", release_fence, fence);
+        ::close(fence);
+      } else {
+        merged_fence = ::dup(release_fence);
+      }
+      hwc_layer->PushBackReleaseFence(merged_fence);
+    }
 
-  // Close the release fences in synchronous power updates
-  if (!async_power_mode_) {
-    PostPowerMode();
+    // Add this release fence onto fbt_release fence.
+    CloseFd(&fbt_release_fence_);
+    fbt_release_fence_ = release_fence;
   }
+  current_power_mode_ = mode;
   return HWC2::Error::None;
 }
 
@@ -1146,12 +1130,7 @@ HWC2::Error HWCDisplay::GetActiveConfig(hwc2_config_t *out_config) {
     return HWC2::Error::BadDisplay;
   }
 
-  if (pending_config_) {
-    *out_config = pending_config_index_;
-  } else {
-    GetActiveDisplayConfig(out_config);
-  }
-
+  GetActiveDisplayConfig(out_config);
   if (*out_config < hwc_config_map_.size()) {
     *out_config = hwc_config_map_.at(*out_config);
   }
@@ -1189,22 +1168,13 @@ HWC2::Error HWCDisplay::SetClientTarget(buffer_handle_t target, int32_t acquire_
 
 HWC2::Error HWCDisplay::SetActiveConfig(hwc2_config_t config) {
   DTRACE_SCOPED();
-  hwc2_config_t current_config = 0;
-  GetActiveConfig(&current_config);
-  if (current_config == config) {
-    return HWC2::Error::None;
+
+  if (SetActiveDisplayConfig(config) != kErrorNone) {
+    return HWC2::Error::BadConfig;
   }
-
-  // Store config index to be applied upon refresh.
-  pending_config_ = true;
-  pending_config_index_ = config;
-
+  DLOGI("Active configuration changed to: %d", config);
   validated_ = false;
   geometry_changes_ |= kConfigChanged;
-
-  // Trigger refresh. This config gets applied on next commit.
-  callbacks_->Refresh(id_);
-
   return HWC2::Error::None;
 }
 
@@ -1311,7 +1281,6 @@ HWC2::Error HWCDisplay::PrepareLayerStack(uint32_t *out_num_types, uint32_t *out
   }
 
   UpdateRefreshRate();
-  UpdateActiveConfig();
   DisplayError error = display_intf_->Prepare(&layer_stack_);
   if (error != kErrorNone) {
     if (error == kErrorShutDown) {
@@ -1325,10 +1294,6 @@ HWC2::Error HWCDisplay::PrepareLayerStack(uint32_t *out_num_types, uint32_t *out
       // so that previous buffer and fences are released, and override the error.
       flush_ = true;
       validated_ = false;
-      // Prepare cycle can fail on a newly connected display if insufficient pipes
-      // are available at this moment. Trigger refresh so that the other displays
-      // can free up pipes and a valid content can be attached to virtual display.
-      callbacks_->Refresh(id_);
       return HWC2::Error::BadDisplay;
     }
   }
@@ -1611,11 +1576,10 @@ HWC2::Error HWCDisplay::PostCommitLayerStack(int32_t *out_retire_fence) {
       // release fences and discard fences from driver
       if (swap_interval_zero_ || layer->flags.single_buffer) {
         close(layer_buffer->release_fence_fd);
-      } else {
-        // It may so happen that layer gets marked to GPU & app layer gets queued
-        // to MDP for composition. In those scenarios, release fence of buffer should
-        // have mdp and gpu sync points merged.
+      } else if (layer->composition != kCompositionGPU) {
         hwc_layer->PushBackReleaseFence(layer_buffer->release_fence_fd);
+      } else {
+        hwc_layer->PushBackReleaseFence(-1);
       }
     } else {
       // In case of flush or display paused, we don't return an error to f/w, so it will
@@ -2312,11 +2276,6 @@ bool HWCDisplay::CanSkipValidate() {
     }
   }
 
-  if (!layer_set_.empty() && !display_intf_->CanSkipValidate()) {
-    DLOGV_IF(kTagClient, "Display needs validation %d", id_);
-    return false;
-  }
-
   return true;
 }
 
@@ -2451,31 +2410,6 @@ void HWCDisplay::WaitOnPreviousFence() {
       return;
     }
   }
-}
-
-void HWCDisplay::GetLayerStack(HWCLayerStack *stack) {
-  stack->client_target = client_target_;
-  stack->layer_map = layer_map_;
-  stack->layer_set = layer_set_;
-}
-
-void HWCDisplay::SetLayerStack(HWCLayerStack *stack) {
-  client_target_ = stack->client_target;
-  layer_map_ = stack->layer_map;
-  layer_set_ = stack->layer_set;
-}
-void HWCDisplay::UpdateActiveConfig() {
-  if (!pending_config_) {
-    return;
-  }
-
-  DisplayError error = display_intf_->SetActiveConfig(pending_config_index_);
-  if (error != kErrorNone) {
-    DLOGI("Failed to set %d config", INT(pending_config_index_));
-  }
-
-  // Reset pending config.
-  pending_config_ = false;
 }
 
 }  // namespace sdm

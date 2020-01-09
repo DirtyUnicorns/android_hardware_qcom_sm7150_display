@@ -98,7 +98,6 @@ class HWCDisplayBuiltIn : public HWCDisplay {
   virtual void SetFastPathComposition(bool enable) {
     fast_path_composition_ = enable && !readback_buffer_queued_;
   }
-  virtual HWC2::Error UpdatePowerMode(HWC2::PowerMode mode);
   virtual HWC2::Error PostCommitLayerStack(int32_t *out_retire_fence);
 
   virtual HWC2::Error SetDisplayedContentSamplingEnabledVndService(bool enabled);
@@ -156,8 +155,7 @@ class HWCDisplayBuiltIn : public HWCDisplay {
   void *output_buffer_base_ = nullptr;
   int default_mode_status_ = 0;
   bool pending_refresh_ = true;
-  bool enable_optimize_refresh_ = false;
-  bool hdr_present_ = false;
+  bool enable_drop_refresh_ = false;
 
   // Members for 1 frame capture in a client provided buffer
   bool frame_capture_buffer_queued_ = false;

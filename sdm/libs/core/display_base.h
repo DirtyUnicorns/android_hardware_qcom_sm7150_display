@@ -149,8 +149,6 @@ class DisplayBase : public DisplayInterface {
   virtual bool IsSupportSsppTonemap();
   virtual DisplayError GetDisplayIdentificationData(uint8_t *out_port, uint32_t *out_data_size,
                                                     uint8_t *out_data);
-  virtual bool CanSkipValidate();
-  virtual DisplayError GetRefreshRate(uint32_t *refresh_rate) { return kErrorNotSupported; }
   virtual DisplayError colorSamplingOn();
   virtual DisplayError colorSamplingOff();
   virtual DisplayError ReconfigureDisplay();
@@ -234,12 +232,6 @@ class DisplayBase : public DisplayInterface {
   uint32_t current_refresh_rate_ = 0;
   bool drop_skewed_vsync_ = false;
   bool custom_mixer_resolution_ = false;
-  DisplayState power_state_pending_ = kStateOff;
-  bool vsync_state_change_pending_ = false;
-  bool requested_vsync_state_ = false;
-  bool defer_power_state_ = false;
-  QSyncMode qsync_mode_ = kQSyncModeNone;
-  bool needs_avr_update_ = false;
 
   static Locker display_power_reset_lock_;
   static bool display_power_reset_pending_;
@@ -247,8 +239,6 @@ class DisplayBase : public DisplayInterface {
  private:
   bool StartDisplayPowerReset();
   void EndDisplayPowerReset();
-  void SetLutSwapFlag();
-  bool lut_swap_ = false;
 };
 
 }  // namespace sdm
