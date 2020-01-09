@@ -556,16 +556,21 @@ Return<void> HWCSession::displayBWTransactionPending(displayBWTransactionPending
   return Void();
 }
 
+#ifdef DISPLAY_CONFIG_1_1
 Return<int32_t> HWCSession::setDisplayAnimating(uint64_t display_id, bool animating ) {
   return CallDisplayFunction(static_cast<hwc2_device_t *>(this), display_id,
                              &HWCDisplay::SetDisplayAnimating, animating);
 }
+#endif
 
+#ifdef DISPLAY_CONFIG_1_2
 Return<int32_t> HWCSession::setDisplayIndex(IDisplayConfig::DisplayTypeExt disp_type,
                                             uint32_t base, uint32_t count) {
   return -1;
 }
+#endif  // DISPLAY_CONFIG_1_2
 
+#ifdef DISPLAY_CONFIG_1_3
 Return<int32_t> HWCSession::controlIdlePowerCollapse(bool enable, bool synchronous) {
   hwc2_display_t active_builtin_disp_id = GetActiveBuiltinDisplay();
   if (active_builtin_disp_id >= HWCCallbacks::kNumDisplays) {
@@ -608,6 +613,8 @@ Return<int32_t> HWCSession::controlIdlePowerCollapse(bool enable, bool synchrono
   DLOGW("Display = %d is not connected.", active_builtin_disp_id);
   return -ENODEV;
 }
+#endif  // DISPLAY_CONFIG_1_3
+
 
 int32_t HWCSession::IsWbUbwcSupported(int *value) {
   HWDisplaysInfo hw_displays_info = {};
@@ -626,6 +633,7 @@ int32_t HWCSession::IsWbUbwcSupported(int *value) {
   return error;
 }
 
+#ifdef DISPLAY_CONFIG_1_4
 Return<void> HWCSession::getWriteBackCapabilities(getWriteBackCapabilities_cb _hidl_cb) {
   int value = 0;
   IDisplayConfig::WriteBackCapabilities wb_caps = {};
@@ -635,7 +643,9 @@ Return<void> HWCSession::getWriteBackCapabilities(getWriteBackCapabilities_cb _h
 
   return Void();
 }
+#endif  // DISPLAY_CONFIG_1_4
 
+#ifdef DISPLAY_CONFIG_1_5
 Return<int32_t> HWCSession::SetDisplayDppsAdROI(uint32_t display_id, uint32_t h_start,
                                                 uint32_t h_end, uint32_t v_start, uint32_t v_end,
                                                 uint32_t factor_in, uint32_t factor_out) {
@@ -643,7 +653,9 @@ Return<int32_t> HWCSession::SetDisplayDppsAdROI(uint32_t display_id, uint32_t h_
                              &HWCDisplay::SetDisplayDppsAdROI, h_start, h_end, v_start, v_end,
                              factor_in, factor_out);
 }
+#endif  // DISPLAY_CONFIG_1_5
 
+#ifdef DISPLAY_CONFIG_1_6
 Return<int32_t> HWCSession::updateVSyncSourceOnPowerModeOff() {
   return 0;
 }
@@ -651,61 +663,15 @@ Return<int32_t> HWCSession::updateVSyncSourceOnPowerModeOff() {
 Return<int32_t> HWCSession::updateVSyncSourceOnPowerModeDoze() {
   return 0;
 }
+#endif
 
-Return<bool> HWCSession::isPowerModeOverrideSupported(uint32_t disp_id) {
-  if (!async_powermode_ || (disp_id > HWCCallbacks::kNumRealDisplays)) {
-    return false;
-  }
-
-  return true;
+#ifdef DISPLAY_CONFIG_1_7
+Return<int32_t> HWCSession::setPowerMode(uint32_t disp_id, PowerMode power_mode) {
+  return 0;
 }
 
-Return<int32_t> HWCSession::setPowerMode(uint32_t disp_id, PowerMode power_mode) {
-  SCOPE_LOCK(display_config_locker_);
-
-  if (!isPowerModeOverrideSupported(disp_id)) {
-    return 0;
-  }
-
-  DLOGI("disp_id: %d power_mode: %d", disp_id, power_mode);
-  HWCDisplay::HWCLayerStack stack = {};
-  hwc2_display_t dummy_disp_id = map_hwc_display_.at(disp_id);
-
-  {
-    // Power state transition start.
-    Locker::ScopeLock lock_power(power_state_[disp_id]);
-    Locker::ScopeLock lock_primary(locker_[disp_id]);
-    Locker::ScopeLock lock_dummy(locker_[dummy_disp_id]);
-
-    power_state_transition_[disp_id] = true;
-    // Pass on the complete stack to dummy display.
-    hwc_display_[disp_id]->GetLayerStack(&stack);
-    // Update the same stack onto dummy display.
-    hwc_display_[dummy_disp_id]->SetLayerStack(&stack);
-  }
-
-  {
-    SCOPE_LOCK(locker_[disp_id]);
-    auto mode = static_cast<HWC2::PowerMode>(power_mode);
-    hwc_display_[disp_id]->SetPowerMode(mode, false /* teardown */);
-  }
-
-  {
-    // Power state transition end.
-    Locker::ScopeLock lock_power(power_state_[disp_id]);
-    Locker::ScopeLock lock_primary(locker_[disp_id]);
-    Locker::ScopeLock lock_dummy(locker_[dummy_disp_id]);
-    // Pass on the layer stack to real display.
-    hwc_display_[dummy_disp_id]->GetLayerStack(&stack);
-    // Update the same stack onto real display.
-    hwc_display_[disp_id]->SetLayerStack(&stack);
-    // Read display has got layerstack. Update the fences.
-    hwc_display_[disp_id]->PostPowerMode();
-
-    power_state_transition_[disp_id] = false;
-  }
-
-  return 0;
+Return<bool> HWCSession::isPowerModeOverrideSupported(uint32_t disp_id) {
+  return false;
 }
 
 Return<bool> HWCSession::isHDRSupported(uint32_t disp_id) {
@@ -752,7 +718,7 @@ Return<void> HWCSession::getDebugProperty(const hidl_string &prop_name,
   int32_t error = -EINVAL;
 
   vendor_prop_name += prop_name.c_str();
-  if (HWCDebugHandler::Get()->GetProperty(vendor_prop_name.c_str(), value) == kErrorNone) {
+  if (HWCDebugHandler::Get()->GetProperty(vendor_prop_name.c_str(), value) != kErrorNone) {
     result = value;
     error = 0;
   }
@@ -761,7 +727,9 @@ Return<void> HWCSession::getDebugProperty(const hidl_string &prop_name,
 
   return Void();
 }
+#endif
 
+#ifdef DISPLAY_CONFIG_1_8
 Return<void> HWCSession::getActiveBuiltinDisplayAttributes(
                                           getDisplayAttributes_cb _hidl_cb) {
   int32_t error = -EINVAL;
@@ -796,7 +764,9 @@ err:
 
   return Void();
 }
+#endif  // DISPLAY_CONFIG_1_8
 
+#ifdef DISPLAY_CONFIG_1_9
 Return<int32_t> HWCSession::setPanelLuminanceAttributes(uint32_t disp_id, float pan_min_lum,
                                                         float pan_max_lum) {
   // currently doing only for virtual display
@@ -824,74 +794,6 @@ Return<bool> HWCSession::isBuiltInDisplay(uint32_t disp_id) {
 
   return false;
 }
-
-Return<void> HWCSession::getSupportedDSIBitClks(uint32_t disp_id,
-                                                getSupportedDSIBitClks_cb _hidl_cb) {
-  SCOPE_LOCK(locker_[disp_id]);
-  if (!hwc_display_[disp_id]) {
-    return Void();
-  }
-
-  std::vector<uint64_t> bit_clks;
-  hwc_display_[disp_id]->GetSupportedDSIClock(&bit_clks);
-
-  hidl_vec<uint64_t> hidl_bit_clks = bit_clks;
-  _hidl_cb(hidl_bit_clks);
-
-  return Void();
-}
-
-Return<uint64_t> HWCSession::getDSIClk(uint32_t disp_id) {
-  SCOPE_LOCK(locker_[disp_id]);
-  if (!hwc_display_[disp_id]) {
-    return 0;
-  }
-
-  uint64_t bit_clk = 0;
-  hwc_display_[disp_id]->GetDynamicDSIClock(&bit_clk);
-
-  return bit_clk;
-}
-
-Return<int32_t> HWCSession::setDSIClk(uint32_t disp_id, uint64_t bit_clk) {
-  SCOPE_LOCK(locker_[disp_id]);
-  if (!hwc_display_[disp_id]) {
-    return -1;
-  }
-
-  return hwc_display_[disp_id]->SetDynamicDSIClock(bit_clk);
-}
-
-Return<int32_t> HWCSession::setCWBOutputBuffer(const ::android::sp<IDisplayCWBCallback> &callback,
-                                               uint32_t disp_id, const Rect &rect,
-                                               bool post_processed, const hidl_handle& buffer) {
-  return -1;
-}
-
-Return<int32_t> HWCSession::setQsyncMode(uint32_t disp_id, IDisplayConfig::QsyncMode mode) {
-  SEQUENCE_WAIT_SCOPE_LOCK(locker_[disp_id]);
-  if (!hwc_display_[disp_id]) {
-    return -1;
-  }
-
-  QSyncMode qsync_mode = kQSyncModeNone;
-  switch (mode) {
-    case IDisplayConfig::QsyncMode::NONE:
-      qsync_mode = kQSyncModeNone;
-      break;
-    case IDisplayConfig::QsyncMode::WAIT_FOR_FENCES_ONE_FRAME:
-      qsync_mode = kQsyncModeOneShot;
-      break;
-    case IDisplayConfig::QsyncMode::WAIT_FOR_FENCES_EACH_FRAME:
-      qsync_mode = kQsyncModeOneShotContinuous;
-      break;
-    case IDisplayConfig::QsyncMode::WAIT_FOR_COMMIT_EACH_FRAME:
-      qsync_mode = kQSyncModeContinuous;
-      break;
-  }
-
-  hwc_display_[disp_id]->SetQSyncMode(qsync_mode);
-  return 0;
-}
+#endif  // DISPLAY_CONFIG_1_9
 
 }  // namespace sdm

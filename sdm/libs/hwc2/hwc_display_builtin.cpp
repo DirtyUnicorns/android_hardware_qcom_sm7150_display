@@ -166,10 +166,10 @@ int HWCDisplayBuiltIn::Init() {
   HWCDebugHandler::Get()->GetProperty(ENABLE_DEFAULT_COLOR_MODE,
                                       &default_mode_status_);
 
-  int optimize_refresh = 0;
-  HWCDebugHandler::Get()->GetProperty(ENABLE_OPTIMIZE_REFRESH, &optimize_refresh);
-  enable_optimize_refresh_ = (optimize_refresh == 1);
-  if (enable_optimize_refresh_) {
+  int drop_refresh = 0;
+  HWCDebugHandler::Get()->GetProperty(ENABLE_DROP_REFRESH, &drop_refresh);
+  enable_drop_refresh_ = (drop_refresh == 1);
+  if (enable_drop_refresh_) {
     DLOGI("Drop redundant drawcycles %d", id_);
   }
   pmic_intf_ = new PMICInterface();
@@ -234,11 +234,6 @@ HWC2::Error HWCDisplayBuiltIn::Validate(uint32_t *out_num_types, uint32_t *out_n
       layer_stack_.flags.post_processed_output = post_processed_output_;
     }
   }
-  // Todo: relook this case
-  if (layer_stack_.flags.hdr_present != hdr_present_) {
-    error = display_intf_->ControlIdlePowerCollapse(!layer_stack_.flags.hdr_present, true);
-    hdr_present_ = layer_stack_.flags.hdr_present;
-  }
 
   uint32_t num_updating_layers = GetUpdatingLayersCount();
   bool one_updating_layer = (num_updating_layers == 1);
@@ -247,29 +242,16 @@ HWC2::Error HWCDisplayBuiltIn::Validate(uint32_t *out_num_types, uint32_t *out_n
   }
 
   uint32_t refresh_rate = GetOptimalRefreshRate(one_updating_layer);
-  error = display_intf_->SetRefreshRate(refresh_rate, force_refresh_rate_);
-
-  // Get the refresh rate set.
-  display_intf_->GetRefreshRate(&refresh_rate);
-  bool vsync_source = (callbacks_->GetVsyncSource() == id_);
-
+  bool final_rate = force_refresh_rate_ ? true : false;
+  error = display_intf_->SetRefreshRate(refresh_rate, final_rate);
   if (error == kErrorNone) {
-    if (vsync_source && (current_refresh_rate_ < refresh_rate)) {
-      DTRACE_BEGIN("HWC2::Vsync::Enable");
-      // Display is ramping up from idle.
-      // Client realizes need for resync upon change in config.
-      // Since we know config has changed, triggering vsync proactively
-      // can help in reducing pipeline delays to enable events.
-      SetVsyncEnabled(HWC2::Vsync::Enable);
-      DTRACE_END();
-    }
-    // On success, set current refresh rate to new refresh rate.
+    // On success, set current refresh rate to new refresh rate
     current_refresh_rate_ = refresh_rate;
   }
 
   if (layer_set_.empty()) {
     // Avoid flush for Command mode panel.
-    flush_ = !client_connected_;
+    flush_ = !(IsDisplayCommandMode() && active_secure_sessions_[kSecureDisplay]);
     validated_ = true;
     return status;
   }
@@ -301,7 +283,7 @@ bool HWCDisplayBuiltIn::CanSkipCommit() {
   }
 
   bool vsync_source = (callbacks_->GetVsyncSource() == id_);
-  bool skip_commit = enable_optimize_refresh_ && !pending_commit_ && !buffers_latched &&
+  bool skip_commit = enable_drop_refresh_ && !pending_commit_ && !buffers_latched &&
                      !pending_refresh_ && !vsync_source;
   pending_refresh_ = false;
 
@@ -977,13 +959,6 @@ DisplayError HWCDisplayBuiltIn::GetMixerResolution(uint32_t *width, uint32_t *he
 }
 
 HWC2::Error HWCDisplayBuiltIn::SetQSyncMode(QSyncMode qsync_mode) {
-  // Client needs to ensure that config change and qsync mode change
-  // are not triggered in the same drawcycle.
-  if (pending_config_) {
-    DLOGE("Failed to set qsync mode. Pending active config transition");
-    return HWC2::Error::Unsupported;
-  }
-
   auto err = display_intf_->SetQSyncMode(qsync_mode);
   if (err != kErrorNone) {
     return HWC2::Error::Unsupported;
@@ -1004,10 +979,13 @@ DisplayError HWCDisplayBuiltIn::ControlIdlePowerCollapse(bool enable, bool synch
 }
 
 DisplayError HWCDisplayBuiltIn::SetDynamicDSIClock(uint64_t bitclk) {
-  DisplayError error = display_intf_->SetDynamicDSIClock(bitclk);
-  if (error != kErrorNone) {
-    DLOGE(" failed: Clk: %llu Error: %d", bitclk, error);
-    return error;
+  {
+    SEQUENCE_WAIT_SCOPE_LOCK(HWCSession::locker_[type_]);
+    DisplayError error = display_intf_->SetDynamicDSIClock(bitclk);
+    if (error != kErrorNone) {
+      DLOGE(" failed: Clk: %llu Error: %d", bitclk, error);
+      return error;
+    }
   }
 
   callbacks_->Refresh(id_);
@@ -1017,6 +995,7 @@ DisplayError HWCDisplayBuiltIn::SetDynamicDSIClock(uint64_t bitclk) {
 }
 
 DisplayError HWCDisplayBuiltIn::GetDynamicDSIClock(uint64_t *bitclk) {
+  SEQUENCE_WAIT_SCOPE_LOCK(HWCSession::locker_[type_]);
   if (display_intf_) {
     return display_intf_->GetDynamicDSIClock(bitclk);
   }
@@ -1039,12 +1018,6 @@ HWC2::Error HWCDisplayBuiltIn::UpdateDisplayId(hwc2_display_t id) {
 
 HWC2::Error HWCDisplayBuiltIn::SetPendingRefresh() {
   pending_refresh_ = true;
-  return HWC2::Error::None;
-}
-
-HWC2::Error HWCDisplayBuiltIn::UpdatePowerMode(HWC2::PowerMode mode) {
-  current_power_mode_ = mode;
-  validated_ = false;
   return HWC2::Error::None;
 }
 
