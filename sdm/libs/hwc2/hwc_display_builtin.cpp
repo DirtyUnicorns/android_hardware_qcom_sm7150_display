@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
+* Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are
@@ -233,6 +233,11 @@ HWC2::Error HWCDisplayBuiltIn::Validate(uint32_t *out_num_types, uint32_t *out_n
       layer_stack_.output_buffer = &output_buffer_;
       layer_stack_.flags.post_processed_output = post_processed_output_;
     }
+  }
+  // Todo: relook this case
+  if (layer_stack_.flags.hdr_present != hdr_present_) {
+    error = display_intf_->ControlIdlePowerCollapse(!layer_stack_.flags.hdr_present, true);
+    hdr_present_ = layer_stack_.flags.hdr_present;
   }
 
   uint32_t num_updating_layers = GetUpdatingLayersCount();
