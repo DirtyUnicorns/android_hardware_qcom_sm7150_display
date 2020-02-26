@@ -3,7 +3,7 @@
 PRODUCT_PACKAGES += \
     android.hardware.graphics.composer@2.3-impl \
     android.hardware.graphics.composer@2.3-service \
-    android.hardware.graphics.mapper@2.0-impl-qti-display \
+    android.hardware.graphics.mapper@3.0-impl-qti-display \
     vendor.qti.hardware.display.allocator-service \
     android.hardware.memtrack@1.0-impl \
     android.hardware.memtrack@1.0-service \
@@ -49,7 +49,7 @@ TARGET_USES_HWC2 := true
 TARGET_USES_QCOM_DISPLAY_BSP := true
 TARGET_USES_COLOR_METADATA := true
 TARGET_USES_DISPLAY_RENDER_INTENTS := true
-TARGET_USES_QTI_MAPPER_2_0 := true
+TARGET_USES_QTI_MAPPER_3_0 := true
 TARGET_USES_QTI_MAPPER_EXTENSIONS_1_1 := true
 
 PRODUCT_PROPERTY_OVERRIDES += \
