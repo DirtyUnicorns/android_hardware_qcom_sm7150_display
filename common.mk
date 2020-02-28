@@ -3,46 +3,46 @@ display_top := $(call my-dir)
 
 #Get the highest display config version available
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.9" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.9" ];\
     then echo DISPLAY_CONFIG_1_9; fi)
 ifeq ($(display_config_version),)
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.8" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.8" ];\
     then echo DISPLAY_CONFIG_1_8; fi)
 endif
 ifeq ($(display_config_version),)
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.7" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.7" ];\
     then echo DISPLAY_CONFIG_1_7; fi)
 endif
 ifeq ($(display_config_version),)
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.6" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.6" ];\
     then echo DISPLAY_CONFIG_1_6; fi)
 endif
 ifeq ($(display_config_version),)
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.5" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.5" ];\
     then echo DISPLAY_CONFIG_1_5; fi)
 endif
 ifeq ($(display_config_version),)
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.4" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.4" ];\
     then echo DISPLAY_CONFIG_1_4; fi)
 endif
 ifeq ($(display_config_version),)
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.3" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.3" ];\
     then echo DISPLAY_CONFIG_1_3; fi)
 endif
 ifeq ($(display_config_version),)
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.2" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.2" ];\
     then echo DISPLAY_CONFIG_1_2; fi)
 endif
 ifeq ($(display_config_version),)
 display_config_version := $(shell \
-    if [ -d "$(TOP)/vendor/qcom/opensource/interfaces/display/config/1.1" ];\
+    if [ -d "$(QC_OPEN_PATH)/interfaces/display/config/1.1" ];\
     then echo DISPLAY_CONFIG_1_1; fi)
 endif
 
